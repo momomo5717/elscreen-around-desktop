@@ -1,0 +1,66 @@
+#+title:elscreen-around-desktop.el
+#+OPTIONS: author:nil timestamp:nil  num:nil creator:nil
+
+* What is it ?
+
+  elscreen-around-desktop provides storing and restoring ElScreen synchronously with desktop.el.
+
+  This was tested on Emacs 24.4.1 (emacs-mac-app 5.2_0)
+
+* Requirements
+
+  Emacs 24.4
+
+  cl-lib.el, frameset.el, desktop.el : builtin package 
+
+  elscreen.el : [[https://github.com/knu/elscreen]] 
+
+* Installation
+  
+  git clone https://github.com/momomo5717/elscreen-around-desktop.git
+
+* Setup
+  #+BEGIN_SRC emacs-lisp
+    (add-to-list 'load-path "~/.emacs.d/installed directory/elscreen-around-desktop")
+    (elscreen-start)
+    (desktop-save-mode t)
+    (require 'elscreen-around-desktop)
+    (elscreen-around-desktop-start)
+  #+END_SRC
+   
+   You can use M-x elscreen-around-desktop-mode-off , if you want to turn off the mode.
+
+   If you use a run-with-idle-timer in the function added to window-configuration-change-hook 
+   except desktop-auto-save-set-timer, set elsc-rad:min-timeout-in-win-conf-hook 
+   to minimum seconds used in window-configuration-change-hook.
+   
+   #+BEGIN_SRC emacs-lisp
+     (setq elsc-rad:min-timeout-in-win-conf-hook mim-sec-in-your-window-configuration-change-hook)
+   #+END_SRC
+
+   If you want to turn off autosave,
+   
+   #+BEGIN_SRC emacs-lisp
+     (setq elsc-rad:auto-store-activep nil)   
+   #+END_SRC
+
+* Custom Variable
+
+*** elsc-rad:filename
+
+    Default : (convert-standard-filename ".elscreen-around-desktop")
+    
+    The file where elscreen tab configuration is stored at desktop-dirname directory.
+
+* Background
+
+    This was inspired by 
+
+    [[http://stackoverflow.com/questions/22445670/save-and-restore-elscreen-tabs-and-split-frames]]
+    [[https://github.com/robario/elscreen-persist]]
+
+    I learn programming as a hobby. I will learn more about that and English.
+
+    Thank you for your help and advice.
+
+    趣味でプログラミングを学んでいるため，詰めが甘い箇所が多々あると思います．ご意見など頂けると幸いです．
