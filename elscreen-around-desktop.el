@@ -77,14 +77,16 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (frameset-filter-params (frame-parameters frame) frameset-filter-alist t)))
 
 (defun elsc-desk:screen-configs (frame)
-  "Return screen-confs"
-  (save-excursion
-   (save-window-excursion
-     (mapcar (lambda (s-num)
-               (set-window-configuration
-                (car (elscreen-get-window-configuration s-num)))
-               (list s-num (window-state-get (frame-root-window frame) t)))
-             (reverse (elscreen-get-conf-list 'screen-history))))))
+  (let ((now-fr (selected-frame)))
+    (select-frame frame)
+    (elscreen-set-window-configuration
+     (elscreen-get-current-screen)
+     (elscreen-current-window-configuration))
+    (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
+             (elscreen-apply-window-configuration
+              (elscreen-get-window-configuration s-num))
+             collect (list s-num (window-state-get (frame-root-window frame) t))
+             finally (select-frame now-fr))))
 
 (defun elsc-desk:frame-id-configs ()
   "Return frame-confs"
@@ -93,17 +95,12 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
          (fr-ls
           (cons (cl-find-if (lambda (fr)(eq fr now-fr)) registered-fr-ls)
                 (cl-remove-if (lambda (fr)(eq fr now-fr)) registered-fr-ls))))
-    (save-excursion
-     (save-window-excursion
-       (prog1
-           (mapcar
-            (lambda(frame) (select-frame frame)
+    (mapcar (lambda(frame)
               (frameset--set-id frame)
               (list (frameset-frame-id frame)
                     (elsc-desk:filtered-frame-params frame)
                     (elsc-desk:screen-configs frame)))
-            fr-ls)
-         (select-frame now-fr))))))
+            fr-ls)))
 
 (defun elsc-desk:write-frame-id-configs (file)
   "Write frame-id-configs to file"
