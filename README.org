@@ -13,7 +13,7 @@
 
   cl-lib.el, frameset.el, desktop.el : builtin package 
 
-  elscreen.el : [[https://github.com/knu/elscreen]] 
+  elscreen.el : [[https://github.com/emacs-jp/elscreen]]
 
 * Installation
   
