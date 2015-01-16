@@ -116,23 +116,28 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 (defun elsc-desk:restore-screen-configs (screen-configs &optional frame)
   "Restore from (list (list screen-num window-state) ...)"
   (let ((fr (if (framep frame) frame (selected-frame)))
-        (ls screen-configs) res-ls)
+        (ls screen-configs) res-ls current-conf)
     (select-frame fr)
+    (setq current-conf (elscreen-current-window-configuration))
     (cl-loop when (null ls) return nil
+             with createdp = t
              for s-config = (car ls) for s-num = (car s-config) do
              (cond
-              ((not (and (integerp s-num) (<= 0 s-num 9))) (pop ls))
+              ((not (integerp s-num)) (pop ls))
               ((elscreen-screen-live-p s-num)
                (elscreen-goto s-num)
                (window-state-put
                 (cl-second s-config) (frame-root-window fr) 'safe)
                (pop ls) (push s-num res-ls))
-              (t (elscreen-create-internal))))
-    (when res-ls
-      (cl-mapc #'elscreen-kill-internal
-               (cl-set-difference (elscreen-get-screen-list) res-ls))
-      (when elscreen-display-tab
-        (elscreen-tab-update t)))))
+              ((null createdp) (pop ls))
+              (t (setq createdp (elscreen-create-internal)))))
+    (cl-mapc #'elscreen-kill-internal
+             (cl-set-difference (elscreen-get-screen-list) res-ls))
+    (unless (elscreen-get-screen-list)
+      (elscreen-delete-frame-confs fr)
+      (elscreen-make-frame-confs fr)
+      (elscreen-apply-window-configuration current-conf))
+    (elscreen-notify-screen-modification 'force-immediately)))
 
 (defun elsc-desk:restore-frame-id-config (frame-id-config)
   "Restore from (list frame-id frame-params screen-configs)"
