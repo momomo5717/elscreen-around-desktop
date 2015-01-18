@@ -62,11 +62,12 @@
 ;;   frame-id-configs  = (list frame-id-config ...)
 ;;   frame-id-config   = (list frame-id frame-params screen-configs)
 ;;   screen-configs = (list screen-config ...) in reverse order of screen-history
-;;   screen-config  = (list screen-num window-state)
+;;   screen-config  = (list screen-num window-state nickname)
 ;;   frame-id       = string
-;;   screen-num     = 0 | 1 | ... | 9
+;;   screen-num     = 0 | 1 | ... | n
 ;;   frame-params   = frame-parameters
 ;;   window-state   = writable windwo-state from window-state-get
+;;   nickname       = string | nil
 
 ;; Functions to store
 
@@ -85,7 +86,9 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
              (elscreen-apply-window-configuration
               (elscreen-get-window-configuration s-num))
-             collect (list s-num (window-state-get (frame-root-window frame) t))
+             collect (list s-num
+                           (window-state-get (frame-root-window frame) t)
+                           (elscreen-get-screen-nickname s-num))
              finally (select-frame now-fr))))
 
 (defun elsc-desk:frame-id-configs ()
@@ -114,7 +117,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 ;; Functions to restore
 
 (defun elsc-desk:restore-screen-configs (screen-configs &optional frame)
-  "Restore from (list (list screen-num window-state) ...)"
+  "Restore from (list (list screen-num window-state nickname) ...)"
   (let ((fr (if (framep frame) frame (selected-frame)))
         (ls screen-configs) res-ls current-conf)
     (select-frame fr)
@@ -123,11 +126,13 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
              with createdp = t
              for s-config = (car ls) for s-num = (car s-config) do
              (cond
-              ((not (integerp s-num)) (pop ls))
+              ((or (not (integerp s-num)) (< s-num 0)) (pop ls))
               ((elscreen-screen-live-p s-num)
                (elscreen-goto s-num)
                (window-state-put
                 (cl-second s-config) (frame-root-window fr) 'safe)
+               (when (stringp (cl-third s-config))
+                 (elscreen-screen-nickname (cl-third s-config)))
                (pop ls) (push s-num res-ls))
               ((null createdp) (pop ls))
               (t (setq createdp (elscreen-create-internal)))))
