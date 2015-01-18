@@ -64,7 +64,7 @@
 ;;   screen-configs = (list screen-config ...) in reverse order of screen-history
 ;;   screen-config  = (list screen-num window-state)
 ;;   frame-id       = string
-;;   screen-num     = 0 | 1 | ... | 9
+;;   screen-num     = 0 | 1 | ... | n
 ;;   frame-params   = frame-parameters
 ;;   window-state   = writable windwo-state from window-state-get
 
@@ -123,7 +123,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
              with createdp = t
              for s-config = (car ls) for s-num = (car s-config) do
              (cond
-              ((not (integerp s-num)) (pop ls))
+              ((or (not (integerp s-num)) (< s-num 0)) (pop ls))
               ((elscreen-screen-live-p s-num)
                (elscreen-goto s-num)
                (window-state-put
