@@ -35,18 +35,18 @@
    to minimum seconds used in window-configuration-change-hook.
    
    #+BEGIN_SRC emacs-lisp
-     (setq elsc-rad:min-timeout-in-win-conf-hook mim-sec-in-your-window-configuration-change-hook)
+     (setq elsc-desk:min-timeout-in-win-conf-hook mim-sec-in-your-window-configuration-change-hook)
    #+END_SRC
 
    If you want to turn off autosave,
    
    #+BEGIN_SRC emacs-lisp
-     (setq elsc-rad:auto-store-activep nil)   
+     (setq elsc-desk:auto-store-activep nil)
    #+END_SRC
 
 * Custom Variable
 
-*** elsc-rad:filename
+*** elsc-desk:filename
 
     Default : (convert-standard-filename ".elscreen-around-desktop")
     
