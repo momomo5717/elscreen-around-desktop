@@ -354,6 +354,17 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
   (elscreen-desktop-clear)
   (elscreen-desktop-read dirname))
 
+;;;###autoload
+(defun elscreen-desktop-remove ()
+  "Emulate desktop-remove."
+  (interactive)
+  (when desktop-dirname
+    (let ((filename
+           (expand-file-name elsc-desk:filename desktop-dirname)))
+      (when (file-exists-p filename)
+        (delete-file filename))))
+  (desktop-remove))
+
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
   (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill)
