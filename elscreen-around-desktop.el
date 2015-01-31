@@ -365,6 +365,16 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
         (delete-file filename))))
   (desktop-remove))
 
+;;;###autoload
+(defun elscreen-desktop-revert ()
+  "Emulate desktop-revert."
+  (interactive)
+  (unwind-protect
+      (progn
+        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (desktop-revert))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
+
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
   (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill)
