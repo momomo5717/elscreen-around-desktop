@@ -209,7 +209,8 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (when (and elscreen-around-desktop-mode
                (or (not (equal prev-dirname desktop-dirname))
                    (> (float-time (nth 5 (file-attributes (desktop-full-file-name))))
-                      (float-time prev-modtime))))
+                      (float-time prev-modtime))
+                   (and (null prev-modtime) (file-exists-p (desktop-full-file-name)))))
       (elsc-desk:write-frame-id-configs
        (expand-file-name elsc-desk:filename desktop-dirname)))
     origin-return-obj))
@@ -344,6 +345,14 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
         (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
         (desktop-read dirname))
     (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
+
+(defun elscreen-desktop-change-dir (dirname)
+  "Emulate desktop-change-dir."
+  (interactive "DChange to directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (desktop-kill)
+  (elscreen-desktop-clear)
+  (elscreen-desktop-read dirname))
 
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
