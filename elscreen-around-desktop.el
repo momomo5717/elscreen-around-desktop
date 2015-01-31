@@ -174,7 +174,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (setq elsc-desk:tmp-stored-frame-id-configs nil)
     (message "Done elsc-desk:restore-frame-id-configs-file")))
 
-;; Restore at the start session
+;; Restore at the start of the session
 
 (defvar elsc-desk:done-read-desktop-start-session-p nil)
 
@@ -183,10 +183,8 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 
 (add-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
 
-(defvar elsc-desk:done-restore-start-session-hook-p nil)
-
 (defun elsc-desk:restore-start-session ()
-  "Restore at the start session."
+  "Restore at the start of the session."
   (when (and elscreen-around-desktop-mode
              elsc-desk:done-read-desktop-start-session-p)
     ;; Temporarily disable the autosave like desktop-read
@@ -194,20 +192,11 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (elsc-desk:restore-frame-id-configs-file
      (expand-file-name elsc-desk:filename  desktop-dirname))
     (desktop-auto-save-enable))
-  (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
-  (setq elsc-desk:done-restore-start-session-hook-p t))
+  (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p))
 
 (add-hook 'window-setup-hook 'elsc-desk:restore-start-session)
 
-;; Restore after desktop-read
-
-(defun elsc-desk:restore-after-desktop-read ()
-  "Restore after desktop-read except the start session."
-  (when elsc-desk:done-restore-start-session-hook-p
-    (elsc-desk:restore-frame-id-configs-file
-     (expand-file-name elsc-desk:filename  desktop-dirname))))
-
-;; Store as the end session
+;; Store at the end of the session
 
 (defun elsc-desk:advice-desktop-kill (elsc-desk:origin-fun &rest elsc-desk:args)
   "Store synchronously with desktop-kill"
@@ -299,6 +288,23 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
   (when elsc-desk:auto-store-timer
     (cancel-timer elsc-desk:auto-store-timer)
     (setq elsc-desk:auto-store-timer nil)))
+
+;; Emulate interactive functions of desktop.el
+
+(defun elsc-desk:restore-after-desktop-read (&rest _ignore)
+  "Restore elscreen configurations in desktop-after-read-hook"
+  (elsc-desk:restore-frame-id-configs-file
+   (expand-file-name elsc-desk:filename desktop-dirname)))
+
+;;;###autoload
+(defun elscreen-desktop-read (&optional dirname)
+  "Emulate desktop-read."
+  (interactive)
+  (unwind-protect
+      (progn
+        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (desktop-read dirname))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
 
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
