@@ -292,6 +292,20 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 ;; Emulate interactive functions of desktop.el
 
 ;;;###autoload
+(defun elscreen-desktop-clear ()
+  "Emulate desktop-clear."
+  (interactive)
+  (when (called-interactively-p)
+    (call-interactively 'desktop-clear)
+    (desktop-clear))
+  (let ((now-fr (selected-frame)))
+   (dolist (fr (frame-list))
+     (select-frame fr)
+     (cl-mapc #'elscreen-kill-internal (elscreen-get-screen-list))
+     (elscreen-delete-frame-confs fr)
+     (elscreen-make-frame-confs fr 'keep))
+   (select-frame now-fr)))
+
 ;;;###autoload
 (defun elscreen-desktop-save (&optional dirname release only-if-changed)
   "Save elscreen configrations with desktop-save."
