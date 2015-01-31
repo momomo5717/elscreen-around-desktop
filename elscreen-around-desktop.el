@@ -321,6 +321,15 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
      (expand-file-name elsc-desk:filename dirname)))
    (t (message (format "File not found : %s" dirname)))))
 
+;;;###autoload
+(defun elscreen-desktop-save-in-desktop-dir ()
+  "Emulate desktop-save-in-desktop-dir."
+  (interactive)
+  (if desktop-dirname
+      (elscreen-desktop-save desktop-dirname)
+    (call-interactively 'elscreen-desktop-save))
+  (message "Desktop saved in %s" (abbreviate-file-name desktop-dirname)))
+
 (defun elsc-desk:restore-after-desktop-read (&rest _ignore)
   "Restore elscreen configurations in desktop-after-read-hook"
   (elsc-desk:restore-frame-id-configs-file
