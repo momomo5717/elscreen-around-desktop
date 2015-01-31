@@ -57,6 +57,13 @@
 (defvar elsc-desk:wrote-message-silence t
   "Flag to run message or not when wrote file")
 
+(define-minor-mode elscreen-around-desktop-mode
+  "Toggle elscreen-around-desktop-mode."
+  :global t
+  :group 'elscreen-around-desktop
+  (if elscreen-around-desktop-mode
+      (elsc-desk:enable-around-desktop)
+    (elsc-desk:disable-around-desktop)))
 
 ;; Data Structure :
 ;;   frame-id-configs  = (list frame-id-config ...)
@@ -182,8 +189,11 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
   "Restore at the start session."
   (when (and elscreen-around-desktop-mode
              elsc-desk:done-read-desktop-start-session-p)
+    ;; Temporarily disable the autosave like desktop-read
+    (desktop-auto-save-disable)
     (elsc-desk:restore-frame-id-configs-file
-     (expand-file-name elsc-desk:filename  desktop-dirname)))
+     (expand-file-name elsc-desk:filename  desktop-dirname))
+    (desktop-auto-save-enable))
   (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
   (setq elsc-desk:done-restore-start-session-hook-p t))
 
@@ -221,73 +231,68 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 
 (defvar elsc-desk:auto-store-activep t)
 
-(defvar elsc-desk:min-timeout-in-win-conf-hook nil)
-
-
-(defvar elsc-desk:subed-minimum-time 1)
-
-(defun elsc-desk:auto-store-timeout ()
-  "Return number or nil
-elsc-desk:auto-store-timeout must return a minimum seconds set to the run-with-idle-timer
-used in window-configuration-change-hook, because elsc-desk:screen-configs invokes
-run-window-configuration-change-hook by using set-window-configuration.
-If the timeout is the same others, one idle-timer used in window-configuration-change-hook
-after another are invoked during idle state.
-"
-  (let ((min-timeout
-         (cond
-          ((and (integerp desktop-auto-save-timeout)
-                (> desktop-auto-save-timeout 0)
-                (not (integerp elsc-desk:min-timeout-in-win-conf-hook)))
-           desktop-auto-save-timeout)
-          ((and (integerp elsc-desk:min-timeout-in-win-conf-hook)
-                (integerp desktop-auto-save-timeout)
-                (> elsc-desk:min-timeout-in-win-conf-hook 0)
-                (> desktop-auto-save-timeout 0))
-           (min elsc-desk:min-timeout-in-win-conf-hook  desktop-auto-save-timeout))
-          ((and (integerp elsc-desk:min-timeout-in-win-conf-hook)
-                (> elsc-desk:min-timeout-in-win-conf-hook 0))
-           elsc-desk:min-timeout-in-win-conf-hook)
-          (t nil))))
-    (if (integerp min-timeout) (- min-timeout elsc-desk:subed-minimum-time) nil)))
-
-
-(defun elsc-desk:advice-desktop-auto-save-enable nil
-  (when (and (integerp (elsc-desk:auto-store-timeout))
-             (> (elsc-desk:auto-store-timeout) 0))
+(defun elsc-desk:advice-desktop-auto-save-enable (&rest _ignore)
+  (when (member 'desktop-auto-save-set-timer
+                (default-value 'window-configuration-change-hook))
     (advice-add 'desktop-auto-save-set-timer :after #'elsc-desk:advice-auto-save-set-timer)))
 
 (advice-add 'desktop-auto-save-enable :after #'elsc-desk:advice-desktop-auto-save-enable)
 
-(defun elsc-desk:advice-desktop-auto-save-disable nil
+(defun elsc-desk:advice-desktop-auto-save-disable (&rest _ignore)
   (advice-remove 'desktop-auto-save-set-timer  #'elsc-desk:advice-auto-save-set-timer)
   (elsc-desk:cancel-auto-store-timer))
 
 (advice-add 'desktop-auto-save-disable :before #'elsc-desk:advice-desktop-auto-save-disable)
+
+(defmacro elsc-desk:progn-under-silence-wcc-hook (&rest body)
+  "Not to run functions in window-configuration-change-hook while evaluating."
+  (let ((tmp-local-wcc-hook-alist (cl-gensym "tmp-local"))
+        (tmp-global-wcc-hook (cl-gensym "tmp-global")))
+    `(let ((,tmp-local-wcc-hook-alist
+            (save-excursion
+              (cl-loop for buf in (buffer-list) with ls do
+                    (set-buffer buf)
+                    when (local-variable-p 'window-configuration-change-hook)
+                      do (push (cons buf window-configuration-change-hook) ls)
+                    finally return ls)))
+           (,tmp-global-wcc-hook (default-value 'window-configuration-change-hook)))
+       (unwind-protect
+           (progn
+             (save-excursion
+               (dolist (buf-wcc ,tmp-local-wcc-hook-alist)
+                 (set-buffer (car buf-wcc))
+                 (setq window-configuration-change-hook nil)))
+             (setq-default window-configuration-change-hook nil)
+             ,@body)
+         (save-excursion
+           (dolist (buf-wcc ,tmp-local-wcc-hook-alist)
+             (set-buffer (car buf-wcc))
+             (setq window-configuration-change-hook (cdr buf-wcc))))
+         (setq-default window-configuration-change-hook ,tmp-global-wcc-hook)))))
 
 (defun elsc-desk:auto-store ()
   "Store synchronously with desktop-auto-save."
   (when (and desktop-save-mode
              elscreen-around-desktop-mode
              elsc-desk:auto-store-activep
-             (integerp (elsc-desk:auto-store-timeout))
-             (> (elsc-desk:auto-store-timeout) 0)
+             (integerp desktop-auto-save-timeout)
+             (> desktop-auto-save-timeout 0)
              (not desktop-lazy-timer)
              (eq (emacs-pid) (desktop-owner))
              desktop-dirname)
-    (elsc-desk:write-frame-id-configs
-     (expand-file-name elsc-desk:filename  desktop-dirname)))
-  (elsc-desk:cancel-auto-store-timer))
+    (elsc-desk:progn-under-silence-wcc-hook
+     (elsc-desk:write-frame-id-configs
+      (expand-file-name elsc-desk:filename desktop-dirname))
+     (elsc-desk:cancel-auto-store-timer))))
 
 (defun elsc-desk:auto-store-set-timer ()
   (elsc-desk:cancel-auto-store-timer)
-  (let ((elsc-desk:timeout (elsc-desk:auto-store-timeout)))
-   (when (and (integerp elsc-desk:timeout)
-              (< 0 elsc-desk:timeout))
-     (setq elsc-desk:auto-store-timer
-           (run-with-idle-timer elsc-desk:timeout nil 'elsc-desk:auto-store)))))
+  (when (and (integerp desktop-auto-save-timeout)
+             (> desktop-auto-save-timeout 0))
+    (setq elsc-desk:auto-store-timer
+          (run-with-idle-timer desktop-auto-save-timeout nil 'elsc-desk:auto-store))))
 
-(defun elsc-desk:advice-auto-save-set-timer ()
+(defun elsc-desk:advice-auto-save-set-timer (&rest _ignore)
   (elsc-desk:auto-store-set-timer))
 
 (defun elsc-desk:cancel-auto-store-timer ()
@@ -295,7 +300,7 @@ after another are invoked during idle state.
     (cancel-timer elsc-desk:auto-store-timer)
     (setq elsc-desk:auto-store-timer nil)))
 
-;; Define minor mode
+;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
   (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill)
   (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
@@ -303,14 +308,6 @@ after another are invoked during idle state.
 (defun elsc-desk:disable-around-desktop ()
   (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill)
   (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
-
-(define-minor-mode elscreen-around-desktop-mode
-  "Toggle elscreen-around-desktop-mode."
-  :global t
-  :group 'elscreen-around-desktop
-  (if elscreen-around-desktop-mode
-      (elsc-desk:enable-around-desktop)
-    (elsc-desk:disable-around-desktop)))
 
 ;;;###autoload
 (defun elscreen-around-desktop-mode-off ()
@@ -322,5 +319,6 @@ after another are invoked during idle state.
   "Start elscreen-around-desktop-mode."
   (elscreen-around-desktop-mode t)
   (when desktop-save-mode (elsc-desk:advice-desktop-auto-save-enable)))
+
 (provide 'elscreen-around-desktop)
 ;;; elscreen-around-desktop.el ends here
