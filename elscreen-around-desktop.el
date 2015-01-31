@@ -174,7 +174,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (setq elsc-desk:tmp-stored-frame-id-configs nil)
     (message "Done elsc-desk:restore-frame-id-configs-file")))
 
-;; Restore at the start session
+;; Restore at the start of the session
 
 (defvar elsc-desk:done-read-desktop-start-session-p nil)
 
@@ -183,10 +183,8 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 
 (add-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
 
-(defvar elsc-desk:done-restore-start-session-hook-p nil)
-
 (defun elsc-desk:restore-start-session ()
-  "Restore at the start session."
+  "Restore at the start of the session."
   (when (and elscreen-around-desktop-mode
              elsc-desk:done-read-desktop-start-session-p)
     ;; Temporarily disable the autosave like desktop-read
@@ -194,20 +192,11 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (elsc-desk:restore-frame-id-configs-file
      (expand-file-name elsc-desk:filename  desktop-dirname))
     (desktop-auto-save-enable))
-  (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
-  (setq elsc-desk:done-restore-start-session-hook-p t))
+  (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p))
 
 (add-hook 'window-setup-hook 'elsc-desk:restore-start-session)
 
-;; Restore after desktop-read
-
-(defun elsc-desk:restore-after-desktop-read ()
-  "Restore after desktop-read except the start session."
-  (when elsc-desk:done-restore-start-session-hook-p
-    (elsc-desk:restore-frame-id-configs-file
-     (expand-file-name elsc-desk:filename  desktop-dirname))))
-
-;; Store as the end session
+;; Store at the end of the session
 
 (defun elsc-desk:advice-desktop-kill (elsc-desk:origin-fun &rest elsc-desk:args)
   "Store synchronously with desktop-kill"
@@ -220,7 +209,8 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (when (and elscreen-around-desktop-mode
                (or (not (equal prev-dirname desktop-dirname))
                    (> (float-time (nth 5 (file-attributes (desktop-full-file-name))))
-                      (float-time prev-modtime))))
+                      (float-time prev-modtime))
+                   (and (null prev-modtime) (file-exists-p (desktop-full-file-name)))))
       (elsc-desk:write-frame-id-configs
        (expand-file-name elsc-desk:filename desktop-dirname)))
     origin-return-obj))
@@ -299,6 +289,91 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
   (when elsc-desk:auto-store-timer
     (cancel-timer elsc-desk:auto-store-timer)
     (setq elsc-desk:auto-store-timer nil)))
+
+;; Emulate interactive functions of desktop.el
+
+;;;###autoload
+(defun elscreen-desktop-clear ()
+  "Emulate desktop-clear."
+  (interactive)
+  (when (called-interactively-p)
+    (call-interactively 'desktop-clear)
+    (desktop-clear))
+  (let ((now-fr (selected-frame)))
+   (dolist (fr (frame-list))
+     (select-frame fr)
+     (cl-mapc #'elscreen-kill-internal (elscreen-get-screen-list))
+     (elscreen-delete-frame-confs fr)
+     (elscreen-make-frame-confs fr 'keep))
+   (select-frame now-fr)))
+
+;;;###autoload
+(defun elscreen-desktop-save (&optional dirname release only-if-changed)
+  "Save elscreen configrations with desktop-save."
+  (interactive)
+  (cond
+   ((interactive-p)
+    (call-interactively 'desktop-save)
+    (elsc-desk:write-frame-id-configs
+     (expand-file-name elsc-desk:filename desktop-dirname)))
+   ((and (stringp dirname) (file-exists-p dirname))
+    (desktop-save dirname release only-if-changed)
+    (elsc-desk:write-frame-id-configs
+     (expand-file-name elsc-desk:filename dirname)))
+   (t (message (format "File not found : %s" dirname)))))
+
+;;;###autoload
+(defun elscreen-desktop-save-in-desktop-dir ()
+  "Emulate desktop-save-in-desktop-dir."
+  (interactive)
+  (if desktop-dirname
+      (elscreen-desktop-save desktop-dirname)
+    (call-interactively 'elscreen-desktop-save))
+  (message "Desktop saved in %s" (abbreviate-file-name desktop-dirname)))
+
+(defun elsc-desk:restore-after-desktop-read (&rest _ignore)
+  "Restore elscreen configurations in desktop-after-read-hook"
+  (elsc-desk:restore-frame-id-configs-file
+   (expand-file-name elsc-desk:filename desktop-dirname)))
+
+;;;###autoload
+(defun elscreen-desktop-read (&optional dirname)
+  "Emulate desktop-read."
+  (interactive)
+  (unwind-protect
+      (progn
+        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (desktop-read dirname))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
+
+(defun elscreen-desktop-change-dir (dirname)
+  "Emulate desktop-change-dir."
+  (interactive "DChange to directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (desktop-kill)
+  (elscreen-desktop-clear)
+  (elscreen-desktop-read dirname))
+
+;;;###autoload
+(defun elscreen-desktop-remove ()
+  "Emulate desktop-remove."
+  (interactive)
+  (when desktop-dirname
+    (let ((filename
+           (expand-file-name elsc-desk:filename desktop-dirname)))
+      (when (file-exists-p filename)
+        (delete-file filename))))
+  (desktop-remove))
+
+;;;###autoload
+(defun elscreen-desktop-revert ()
+  "Emulate desktop-revert."
+  (interactive)
+  (unwind-protect
+      (progn
+        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (desktop-revert))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
 
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
