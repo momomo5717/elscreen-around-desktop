@@ -43,7 +43,7 @@
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
-(defconst elscreen-around-desktop-version "0.1.4")
+(defconst elscreen-around-desktop-version "0.1.5")
 
 (defcustom elsc-desk:filename
   (convert-standard-filename ".elscreen-around-desktop")
