@@ -3,7 +3,11 @@
 
 * What is it ?
 
-  elscreen-around-desktop provides storing and restoring ElScreen synchronously with desktop.el.
+  elscreen-around-desktop provides the following features by use of desktop.el.
+
+  + Restore elscreen tabs, history and nicknames of each frame at the start session.
+  + Save at the end session.
+  + Auto save synchronously with desktop-auto-save.
 
   This was tested on Emacs 24.4.1 (emacs-mac-app 5.2_0)
 
@@ -11,9 +15,9 @@
 
   Emacs 24.4
 
-  cl-lib.el, frameset.el, desktop.el : builtin package 
-
   elscreen.el : [[https://github.com/emacs-jp/elscreen]]
+
+  You can also install elscreen.el from ELPA, El-Get or other package systems.
 
 * Installation
   
@@ -21,24 +25,17 @@
 
 * Setup
   #+BEGIN_SRC emacs-lisp
-    (add-to-list 'load-path "~/.emacs.d/installed directory/elscreen-around-desktop")
+    (add-to-list 'load-path "/path/to/elscreen")
+    (add-to-list 'load-path "/path/to/elscreen-around-desktop")
     (elscreen-start)
-    (desktop-save-mode t)
     (require 'elscreen-around-desktop)
+    (desktop-save-mode t)
     (elscreen-around-desktop-start)
   #+END_SRC
    
    You can use M-x elscreen-around-desktop-mode-off , if you want to turn off the mode.
 
-   If you use a run-with-idle-timer in the function added to window-configuration-change-hook 
-   except desktop-auto-save-set-timer, set elsc-rad:min-timeout-in-win-conf-hook 
-   to minimum seconds used in window-configuration-change-hook.
-   
-   #+BEGIN_SRC emacs-lisp
-     (setq elsc-desk:min-timeout-in-win-conf-hook mim-sec-in-your-window-configuration-change-hook)
-   #+END_SRC
-
-   If you want to turn off autosave,
+   If you want to turn off auto save,
    
    #+BEGIN_SRC emacs-lisp
      (setq elsc-desk:auto-store-activep nil)
@@ -50,13 +47,14 @@
 
     Default : (convert-standard-filename ".elscreen-around-desktop")
     
-    The file where elscreen tab configuration is stored at desktop-dirname directory.
+    ElScreen configurations is saved to the file in desktop-dirname directory.
 
 * Background
 
     This was inspired by 
 
     [[http://stackoverflow.com/questions/22445670/save-and-restore-elscreen-tabs-and-split-frames]]
+
     [[https://github.com/robario/elscreen-persist]]
 
     I learn programming as a hobby. I will learn more about that and English.
