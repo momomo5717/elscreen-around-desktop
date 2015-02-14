@@ -79,10 +79,16 @@
 ;; Functions to store
 
 (defun elsc-desk:filtered-frame-params (frame)
-  "Return filltered frame-parameters to reset frame-parameters after frame-notice-user-settings
+  "Return filltered frame-parameters to reset frame-parameters
+after frame-notice-user-settings
 between emacs-startup-hook and window-setup-hook in normal-top-level."
-  (let ((frameset--target-display nil))
-    (frameset-filter-params (frame-parameters frame) frameset-filter-alist t)))
+  (let* ((frameset--target-display nil)
+         (filtered-params
+          (frameset-filter-params
+           (frame-parameters frame) frameset-filter-alist t)))
+    (eval (read (with-temp-buffer
+                  (desktop-outvar 'filtered-params)
+                  (buffer-string))))))
 
 (defun elsc-desk:screen-configs (frame)
   "Return screen-configs of the frame."
