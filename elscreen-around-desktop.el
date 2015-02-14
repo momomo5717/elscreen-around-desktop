@@ -80,7 +80,7 @@
 
 (defun elsc-desk:filtered-frame-params (frame)
   "Return filltered frame-parameters to reset frame-parameters after frame-notice-user-settings
-between emacs-startup-hook window-setup-hook in normal-top-level."
+between emacs-startup-hook and window-setup-hook in normal-top-level."
   (let ((frameset--target-display nil))
     (frameset-filter-params (frame-parameters frame) frameset-filter-alist t)))
 
@@ -99,7 +99,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
              finally (select-frame now-fr))))
 
 (defun elsc-desk:frame-id-configs ()
-  "Return frame-confs"
+  "Return frame-id-configs"
   (let* ((now-fr (selected-frame))
          (registered-fr-ls (mapcar #'car elscreen-frame-confs))
          (fr-ls
@@ -119,7 +119,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
       (insert (prin1-to-string `(setq elsc-desk:tmp-stored-frame-id-configs
                                       ',fr-id-configs))))
     (unless elsc-desk:wrote-message-silence
-     (message (format "Wrote elsc-desk:frame-id-configs :%s" file)))))
+      (message "Wrote elsc-desk:frame-id-configs :%s" file))))
 
 ;; Functions to restore
 
@@ -168,7 +168,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 (defun elsc-desk:restore-frame-id-configs-file (file)
   "Restore from a config file."
   (if (not (file-exists-p file))
-      (message (format "File not found : %s" file))
+      (message "File not found : %s" file)
     (load file)
     (elsc-desk:restore-frame-id-configs elsc-desk:tmp-stored-frame-id-configs)
     (setq elsc-desk:tmp-stored-frame-id-configs nil)
@@ -320,7 +320,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (desktop-save dirname release only-if-changed)
     (elsc-desk:write-frame-id-configs
      (expand-file-name elsc-desk:filename dirname)))
-   (t (message (format "File not found : %s" dirname)))))
+   (t (message "File not found : %s" dirname))))
 
 ;;;###autoload
 (defun elscreen-desktop-save-in-desktop-dir ()
