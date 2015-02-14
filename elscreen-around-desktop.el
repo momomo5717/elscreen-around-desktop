@@ -85,18 +85,21 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
     (frameset-filter-params (frame-parameters frame) frameset-filter-alist t)))
 
 (defun elsc-desk:screen-configs (frame)
+  "Return screen-configs of the frame."
   (let ((now-fr (selected-frame)))
     (select-frame frame)
     (elscreen-set-window-configuration
      (elscreen-get-current-screen)
      (elscreen-current-window-configuration))
-    (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
-             (elscreen-apply-window-configuration
-              (elscreen-get-window-configuration s-num))
-             collect (list s-num
-                           (window-state-get (frame-root-window frame) t)
-                           (elscreen-get-screen-nickname s-num))
-             finally (select-frame now-fr))))
+    (prog1
+        (elscreen-save-screen-excursion
+         (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
+                  (elscreen-apply-window-configuration
+                   (elscreen-get-window-configuration s-num))
+                  collect (list s-num
+                                (window-state-get (frame-root-window frame) t)
+                                (elscreen-get-screen-nickname s-num))))
+      (select-frame now-fr))))
 
 (defun elsc-desk:frame-id-configs ()
   "Return frame-id-configs"
