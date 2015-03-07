@@ -386,12 +386,10 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
 
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
-  (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill)
-  (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
+  (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill))
 
 (defun elsc-desk:disable-around-desktop ()
-  (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill)
-  (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
+  (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill))
 
 ;;;###autoload
 (defun elscreen-around-desktop-mode-off ()
