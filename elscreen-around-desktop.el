@@ -21,15 +21,12 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;; Tested on Emacs 24.4.1 (emacs-mac-app 5.2_0)
 ;;
 ;; Usage
 ;;   (elscreen-start)
 ;;   (desktop-save-mode t)
 ;;   (require 'elscreen-around-desktop)
-;;   (elscreen-around-desktop)
-;;
-;;   You can use M-x elscreen-around-desktop-mode-off, if you want to off the mode.
+;;   (elscreen-around-desktop-mode t)
 ;;
 ;;; Code:
 
@@ -224,7 +221,7 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
        (expand-file-name elsc-desk:filename desktop-dirname)))
     origin-return-obj))
 
-;; Emulate auto save written in desktop.el
+;; Emulate auto save defined in desktop.el
 
 (defvar elsc-desk:auto-store-timer nil)
 
@@ -299,7 +296,7 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
     (cancel-timer elsc-desk:auto-store-timer)
     (setq elsc-desk:auto-store-timer nil)))
 
-;; Emulate interactive functions of desktop.el
+;; Emulate interactive functions defined desktop.el
 
 ;;;###autoload
 (defun elscreen-desktop-clear ()
