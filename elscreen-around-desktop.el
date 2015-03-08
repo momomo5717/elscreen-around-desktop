@@ -391,16 +391,5 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
 (defun elsc-desk:disable-around-desktop ()
   (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill))
 
-;;;###autoload
-(defun elscreen-around-desktop-mode-off ()
-  "Turn off elscreen-around-desktop-mode."
-  (interactive)
-  (elscreen-around-desktop-mode 0))
-
-(defun elscreen-around-desktop-start ()
-  "Start elscreen-around-desktop-mode."
-  (elscreen-around-desktop-mode t)
-  (when desktop-save-mode (elsc-desk:advice-desktop-auto-save-enable)))
-
 (provide 'elscreen-around-desktop)
 ;;; elscreen-around-desktop.el ends here
