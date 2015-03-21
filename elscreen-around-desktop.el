@@ -3,8 +3,8 @@
 ;; Copyright (C) 2015 momomo5717
 
 ;; Keywords: elscreen desktop frameset
-;; Version: 0.1.6
-;; Package-Requires: ((cl-lib "1.0") (frameset "1") (desktop "206") (elscreen "20140421.414"))
+;; Version: 0.1.7
+;; Package-Requires: ((emacs "24.4") (elscreen "20140421.414"))
 ;; URL: https://github.com/momomo5717/elscreen-around-desktop
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -21,15 +21,12 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;; Tested on Emacs 24.4.1 (emacs-mac-app 5.2_0)
 ;;
 ;; Usage
 ;;   (elscreen-start)
 ;;   (desktop-save-mode t)
 ;;   (require 'elscreen-around-desktop)
-;;   (elscreen-around-desktop)
-;;
-;;   You can use M-x elscreen-around-desktop-mode-off, if you want to off the mode.
+;;   (elscreen-around-desktop-mode t)
 ;;
 ;;; Code:
 
@@ -43,7 +40,7 @@
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
-(defconst elscreen-around-desktop-version "0.1.6")
+(defconst elscreen-around-desktop-version "0.1.7")
 
 (defcustom elsc-desk:filename
   (convert-standard-filename ".elscreen-around-desktop")
@@ -79,27 +76,36 @@
 ;; Functions to store
 
 (defun elsc-desk:filtered-frame-params (frame)
-  "Return filltered frame-parameters to reset frame-parameters after frame-notice-user-settings
-between emacs-startup-hook window-setup-hook in normal-top-level."
-  (let ((frameset--target-display nil))
-    (frameset-filter-params (frame-parameters frame) frameset-filter-alist t)))
+  "Return filltered frame-parameters to reset frame-parameters
+after frame-notice-user-settings
+between emacs-startup-hook and window-setup-hook in normal-top-level."
+  (let* ((frameset--target-display nil)
+         (filtered-params
+          (frameset-filter-params
+           (frame-parameters frame) frameset-filter-alist t)))
+    (eval (read (with-temp-buffer
+                  (desktop-outvar 'filtered-params)
+                  (buffer-string))))))
 
 (defun elsc-desk:screen-configs (frame)
+  "Return screen-configs of the frame."
   (let ((now-fr (selected-frame)))
     (select-frame frame)
     (elscreen-set-window-configuration
      (elscreen-get-current-screen)
      (elscreen-current-window-configuration))
-    (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
-             (elscreen-apply-window-configuration
-              (elscreen-get-window-configuration s-num))
-             collect (list s-num
-                           (window-state-get (frame-root-window frame) t)
-                           (elscreen-get-screen-nickname s-num))
-             finally (select-frame now-fr))))
+    (prog1
+        (elscreen-save-screen-excursion
+         (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
+                  (elscreen-apply-window-configuration
+                   (elscreen-get-window-configuration s-num))
+                  collect (list s-num
+                                (window-state-get (frame-root-window frame) t)
+                                (elscreen-get-screen-nickname s-num))))
+      (select-frame now-fr))))
 
 (defun elsc-desk:frame-id-configs ()
-  "Return frame-confs"
+  "Return frame-id-configs"
   (let* ((now-fr (selected-frame))
          (registered-fr-ls (mapcar #'car elscreen-frame-confs))
          (fr-ls
@@ -119,7 +125,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
       (insert (prin1-to-string `(setq elsc-desk:tmp-stored-frame-id-configs
                                       ',fr-id-configs))))
     (unless elsc-desk:wrote-message-silence
-     (message (format "Wrote elsc-desk:frame-id-configs :%s" file)))))
+      (message "Wrote elsc-desk:frame-id-configs :%s" file))))
 
 ;; Functions to restore
 
@@ -168,7 +174,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 (defun elsc-desk:restore-frame-id-configs-file (file)
   "Restore from a config file."
   (if (not (file-exists-p file))
-      (message (format "File not found : %s" file))
+      (message "File not found : %s" file)
     (load file)
     (elsc-desk:restore-frame-id-configs elsc-desk:tmp-stored-frame-id-configs)
     (setq elsc-desk:tmp-stored-frame-id-configs nil)
@@ -215,7 +221,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
        (expand-file-name elsc-desk:filename desktop-dirname)))
     origin-return-obj))
 
-;; Emulate auto save written in desktop.el
+;; Emulate auto save defined in desktop.el
 
 (defvar elsc-desk:auto-store-timer nil)
 
@@ -290,7 +296,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (cancel-timer elsc-desk:auto-store-timer)
     (setq elsc-desk:auto-store-timer nil)))
 
-;; Emulate interactive functions of desktop.el
+;; Emulate interactive functions defined desktop.el
 
 ;;;###autoload
 (defun elscreen-desktop-clear ()
@@ -320,7 +326,7 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
     (desktop-save dirname release only-if-changed)
     (elsc-desk:write-frame-id-configs
      (expand-file-name elsc-desk:filename dirname)))
-   (t (message (format "File not found : %s" dirname)))))
+   (t (message "File not found : %s" dirname))))
 
 ;;;###autoload
 (defun elscreen-desktop-save-in-desktop-dir ()
@@ -377,23 +383,10 @@ between emacs-startup-hook window-setup-hook in normal-top-level."
 
 ;; Functions for minor mode
 (defun elsc-desk:enable-around-desktop ()
-  (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill)
-  (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
+  (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill))
 
 (defun elsc-desk:disable-around-desktop ()
-  (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill)
-  (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read))
-
-;;;###autoload
-(defun elscreen-around-desktop-mode-off ()
-  "Turn off elscreen-around-desktop-mode."
-  (interactive)
-  (elscreen-around-desktop-mode 0))
-
-(defun elscreen-around-desktop-start ()
-  "Start elscreen-around-desktop-mode."
-  (elscreen-around-desktop-mode t)
-  (when desktop-save-mode (elsc-desk:advice-desktop-auto-save-enable)))
+  (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill))
 
 (provide 'elscreen-around-desktop)
 ;;; elscreen-around-desktop.el ends here
