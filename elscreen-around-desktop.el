@@ -3,8 +3,8 @@
 ;; Copyright (C) 2015 momomo5717
 
 ;; Keywords: elscreen desktop frameset
-;; Version: 0.1.6
-;; Package-Requires: ((cl-lib "1.0") (frameset "1") (desktop "206") (elscreen "20140421.414"))
+;; Version: 0.1.7
+;; Package-Requires: ((emacs "24.4") (elscreen "20140421.414"))
 ;; URL: https://github.com/momomo5717/elscreen-around-desktop
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -40,7 +40,7 @@
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
-(defconst elscreen-around-desktop-version "0.1.6")
+(defconst elscreen-around-desktop-version "0.1.7")
 
 (defcustom elsc-desk:filename
   (convert-standard-filename ".elscreen-around-desktop")
