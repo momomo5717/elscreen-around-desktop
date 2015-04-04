@@ -1,58 +1,75 @@
 * elscreen-around-desktop.el
 
+  Warning : v0.2.x is not compatible with v0.1.x.
+
 ** What is it ?
 
-  elscreen-around-desktop provides the following features using desktop.el.
+   elscreen-around-desktop.el is an extension of desktop.el for ElScreen.
 
-  + Saves elscreen tabs, history and nicknames of each frame at the end of the session
-  + Restores them at the start of the session
-  + Auto save synchronously with desktop-auto-save
-  + Interactive functions which emulate functions defined in desktop.el.
+   The following features are provided using desktop.el.
+
+   + Saving/Restoring ElScreen tabs, history and nicknames of each frame at the end/start of the session.
+   + Auto save synchronously with desktop-auto-save.
+   + Interactive functions which emulate functions defined in desktop.el.
+   + Saving/Restoring extensions of ElScreen by defining converters.
 
 ** Requirements
 
    + GNU Emacs 24.4 or later
-   + elscreen.el ([[https://github.com/emacs-jp/elscreen]] fixed branch)
+   + elscreen.el ([[https://github.com/emacs-jp/elscreen]])
 
    Tested with GNU Emaccs 24.4 (emacs-mac-app @5.4_0)
 
 ** Setup
-  #+BEGIN_SRC emacs-lisp
-    (add-to-list 'load-path "/path/to/elscreen")
-    (add-to-list 'load-path "/path/to/elscreen-around-desktop")
-    (elscreen-start)
-    (require 'elscreen-around-desktop)
-    (desktop-save-mode t)
-    (elscreen-around-desktop-mode t)
-  #+END_SRC
 
-   If you want to turn off auto save, set =elsc-desk:auto-store-activep= to nil.
-   
    #+BEGIN_SRC emacs-lisp
-     (setq elsc-desk:auto-store-activep nil)   
+     (add-to-list 'load-path "/path/to/elscreen")
+     (add-to-list 'load-path "/path/to/elscreen-around-desktop")
+     (elscreen-start)
+     (require 'elscreen-around-desktop)
+     (desktop-save-mode 1)
+     (elscreen-around-desktop-mode 1)
+   #+END_SRC
+
+   If you want to turn off auto save, set =elsc-desk-auto-save-active-p= to nil.
+
+   #+BEGIN_SRC emacs-lisp
+     (setq elsc-desk-auto-save-active-p nil)
    #+END_SRC
 
 ** Custom Variable
 
-**** elsc-desk:filename
+**** elsc-desk-filename
 
-    Default : (convert-standard-filename ".elscreen-around-desktop")
-    
-    ElScreen configurations is saved to the file in desktop-dirname directory.
+     Default : (convert-standard-filename ".elscreen-around-desktop")
+
+     =frame-id-configs= is saved to the file in desktop-dirname directory.
 
 ** Interactive functions which emulate functions defined in desktop.el
 
-  + elscreen-desktop-clear
-  + elscreen-desktop-save
-  + elscreen-desktop-save-in-desktop-dir
-  + elscreen-desktop-read
-  + elscreen-desktop-change-dir
-  + elscreen-desktop-remove
-  + elscreen-desktop-revert
+   + =elscreen-desktop-clear=
+   + =elscreen-desktop-save=
+   + =elscreen-desktop-save-in-desktop-dir=
+   + =elscreen-desktop-read=
+   + =elscreen-desktop-change-dir=
+   + =elscreen-desktop-remove=
+   + =elscreen-desktop-revert=
+
+** Other interactive functions.
+
+   + =elscreen-desktop-save-to-dir=
+   + =elscreen-desktop-read-from-dir=
+
+** elscreen-separate-buffer-list-around-desktop.el
+
+   This is an example of setting for an extension.
+
+   elscreen-separate-buffer-list can be installed from MELPA or
+   [[https://github.com/wamei/elscreen-separate-buffer-list]].
 
 ** Background
 
-    This was inspired by 
+    This was inspired by
 
     [[http://stackoverflow.com/questions/22445670/save-and-restore-elscreen-tabs-and-split-frames]]
 

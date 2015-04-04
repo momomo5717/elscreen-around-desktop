@@ -1,4 +1,4 @@
-;;; elscreen-around-desktop.el --- store and restore elscreen tabs synchronously with desktop.el
+;;; elscreen-around-desktop.el --- save and restore elscreen tabs synchronously with desktop.el  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2015 momomo5717
 
@@ -24,8 +24,8 @@
 ;;
 ;; Usage
 ;;   (elscreen-start)
-;;   (desktop-save-mode t)
 ;;   (require 'elscreen-around-desktop)
+;;   (desktop-save-mode t)
 ;;   (elscreen-around-desktop-mode t)
 ;;
 ;;; Code:
@@ -36,212 +36,402 @@
 (require 'elscreen)
 
 (defgroup elscreen-around-desktop nil
-  "ElScreen around desktop -- Store and Restore ElScreen Tab"
+  "ElScreen around desktop -- Save and Restore ElScreen Tab"
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
 (defconst elscreen-around-desktop-version "0.1.7")
 
-(defcustom elsc-desk:filename
+(defcustom elsc-desk-filename
   (convert-standard-filename ".elscreen-around-desktop")
-  "Basic file name"
+  "Basic file name."
   :type 'file
   :group 'elscreen-around-desktop)
 
-(defvar elsc-desk:tmp-stored-frame-id-configs nil
-  "Saved frame-id-configs")
+(defun elsc-desk-full-file-name (&optional dirname)
+  "Return the full name of the elscreen-around-desktop file in DIRNAME.
+DIRNAME omitted or nil means use `desktop-dirname'."
+  (expand-file-name elsc-desk-filename (or dirname desktop-dirname)))
 
-(defvar elsc-desk:wrote-message-silence t
-  "Flag to run message or not when wrote file")
+(defvar elsc-desk-saved-frame-id-configs nil
+  "Saved frame-id-configs.")
 
+(defvar elsc-desk--wrote-message-silence t
+  "Flag to run message or not when wrote file.")
+
+;;;###autoload
 (define-minor-mode elscreen-around-desktop-mode
   "Toggle elscreen-around-desktop-mode."
   :global t
   :group 'elscreen-around-desktop
   (if elscreen-around-desktop-mode
-      (elsc-desk:enable-around-desktop)
-    (elsc-desk:disable-around-desktop)))
+      (elsc-desk--enable-around-desktop)
+    (elsc-desk--disable-around-desktop)))
 
-;; Data Structure :
-;;   frame-id-configs  = (list frame-id-config ...)
-;;   frame-id-config   = (list frame-id frame-params screen-configs)
-;;   screen-configs = (list screen-config ...) in reverse order of screen-history
-;;   screen-config  = (list screen-num window-state nickname)
-;;   frame-id       = string
-;;   screen-num     = 0 | 1 | ... | n
-;;   frame-params   = frame-parameters
-;;   window-state   = writable windwo-state from window-state-get
-;;   nickname       = string | nil
+;;; Data Structure :
+;;   frame-id-configs = (list frame-id-config ...)
+;;   frame-id-config  = (list frame-id (frame-params frame-parameters)
+;;                            (screen-property screen-configs) (type value) ...)
+;;   screen-configs   = (list screen-config ...) in reverse order of screen-history
+;;   screen-config    = (list screen-num (type value) ...)
+;;   frame-id         = string
+;;   screen-num       = 0 | 1 | ... | n
 
-;; Functions to store
+;;; Variables and functions for converters
 
-(defun elsc-desk:filtered-frame-params (frame)
-  "Return filltered frame-parameters to reset frame-parameters
-after frame-notice-user-settings
-between emacs-startup-hook and window-setup-hook in normal-top-level."
+(defun elsc-desk--elscreen-get-screen-conf-list (screen type)
+  (assoc-default type (elscreen-get-screen-property screen)))
+
+(defun elsc-desk--elscreen-set-screen-conf-list (screen type conf-list)
+  ;; If type doesn't exist, the pair of type and conf-list is added.
+  (let* ((screen-property (elscreen-get-screen-property screen))
+         (assoc (assoc type screen-property)))
+    (if assoc (setcdr assoc conf-list)
+      (setcdr screen-property (cons (car screen-property) (cdr screen-property)))
+      (setcar screen-property (cons type conf-list)))))
+
+(defvar elsc-desk-screen-config-converters
+  '((window-configuration
+     (lambda (_screen value)
+         (elscreen-apply-window-configuration value)
+         (window-state-get (frame-root-window (selected-frame)) t))
+     (lambda (_screen value)
+         (window-state-put value (frame-root-window (selected-frame)) 'safe)
+         (elscreen-current-window-configuration)))
+    (nickname
+     (lambda (_screen value) value)
+     (lambda (_screen value) value)))
+  "Alist of key and functions to convert a screen configuration.
+\(list \(list key write-fun restore-fun\) ... \)
+The functions take two args \(screen value\)")
+
+;;;###autoload
+(defun elsc-desk-add-to-screen-config-converters
+    (key &optional write-fun restore-fun appendp)
+  "Add \(KEY WRITE-FUN RESTORE-FUN\) to `elsc-desk-screen-config-converters'.
+When APPENDP is non-nil, add to last."
+  (let* ((assoc (assoc key elsc-desk-screen-config-converters))
+         (write-fun (or write-fun (lambda (_screen v) v)))
+         (restore-fun (or restore-fun (lambda (_screen v) v)))
+         (converter (list key write-fun restore-fun)))
+    (unless assoc
+      (if appendp
+          (setq elsc-desk-screen-config-converters
+                (nconc elsc-desk-screen-config-converters (list converter)))
+        (push converter elsc-desk-screen-config-converters)))))
+
+;;;###autoload
+(defun elsc-desk-reset-screen-config-converters
+    (key &optional write-fun restore-fun)
+  "RSET KEY's WRITE-FUN, RESTORE-FUN in `elsc-desk-screen-config-converters'."
+  (let ((assoc (assoc key elsc-desk-screen-config-converters))
+        (write-fun (or write-fun (lambda (_screen v) v)))
+        (restore-fun (or restore-fun (lambda (_screen v) v))))
+    (when assoc
+      (setcdr assoc (list write-fun restore-fun)))))
+
+;;;###autoload
+(defun elsc-desk-delete-from-screen-config-converters (key)
+  "Delete the converter of KEY in `elsc-desk-screen-config-converters'."
+  (setq elsc-desk-screen-config-converters
+        (cl-delete key elsc-desk-screen-config-converters
+                   :key #'car)))
+
+(defun elsc-desk-intern-saved-symbol (sym)
+  "Intern SYM with elsc-desk-saved- prefix."
+  (intern (concat "elsc-desk-saved-" (symbol-name sym))))
+
+(defvar elsc-desk-variable-converters nil
+  "Alist of a variable name and functions to save and restore the variable.
+\(list \(list name write-fun restore-fun\) ... \)
+The functions take no arg.")
+
+;;;###autoload
+(defun elsc-desk-add-to-variable-converters
+    (name &optional write-fun restore-fun appendp)
+    "Add \(NAME WRITE-FUN RESTORE-FUN\) to `elsc-desk-variable-converters'.
+When APPENDP is non-nil, add to last."
+  (let* ((assoc (assoc name elsc-desk-variable-converters))
+         (saved-name (elsc-desk-intern-saved-symbol name))
+         (write-fun (or write-fun `(lambda () ,name)))
+         (restore-fun (or restore-fun `(lambda () (setq ,name  ,saved-name))))
+         (converter (list name write-fun restore-fun)))
+    (unless assoc
+      (if appendp
+          (setq elsc-desk-variable-converters
+                (nconc elsc-desk-variable-converters (list converter)))
+       (push converter elsc-desk-variable-converters)))))
+
+;;;###autoload
+(defun elsc-desk-reset-variable-converters
+    (name &optional write-fun restore-fun)
+  "RSET NAME's WRITE-FUN, RESTORE-FUN in `elsc-desk-variable-converters'."
+  (let* ((assoc (assoc name elsc-desk-variable-converters))
+         (saved-name (elsc-desk-intern-saved-symbol name))
+         (write-fun (or write-fun `(lambda () ,name)))
+         (restore-fun (or restore-fun `(lambda () (setq ,name ,saved-name)))))
+    (when assoc
+      (setcdr assoc (list write-fun restore-fun)))))
+
+;;;###autoload
+(defun elsc-desk-delete-from-variable-converters (name)
+  "Delete the converter of NAME in `elsc-desk-variable-converters'."
+  (setq elsc-desk-variable-converters
+        (cl-delete name elsc-desk-variable-converters :key #'car)))
+
+(defvar elsc-desk-save-before-hook nil
+  "Run before getting frame-id-configs.")
+
+(defvar elsc-desk-save-after-hook nil
+  "Run after getting frame-id-configs.")
+
+(defvar elsc-desk-restore-before-hook nil
+  "Run before restoreing frame-id-configs.")
+
+(defvar elsc-desk-restore-after-hook nil
+  "Run after restoreing frame-id-configs.")
+
+;; Functions to save
+
+(defvar frameset--target-display)
+(defvar elsc-desk--filtered-params)
+(defun elsc-desk--filtered-frame-params (frame)
+  "Return filltered `frame-parameters' of FRAME.
+To reset `frame-parameters'
+after running the function `frame-notice-user-settings'
+in `normal-top-level'."
   (let* ((frameset--target-display nil)
-         (filtered-params
+         (elsc-desk--filtered-params
           (frameset-filter-params
            (frame-parameters frame) frameset-filter-alist t)))
-    (eval (read (with-temp-buffer
-                  (desktop-outvar 'filtered-params)
-                  (buffer-string))))))
+    (cl-delete "Unprintable entity"
+               (eval (read (with-temp-buffer
+                             (desktop-outvar 'elsc-desk--filtered-params)
+                             (buffer-string))))
+               :key #'cdr :test #'equal)))
 
-(defun elsc-desk:screen-configs (frame)
-  "Return screen-configs of the frame."
-  (let ((now-fr (selected-frame)))
+(defun elsc-desk--writable-screen-config-list (screen screen-property)
+  "Convert SCREEN's SCREEN-PROPERTY to writable screen-config-list."
+  (cl-loop with als = nil
+           for (key write-fn) in elsc-desk-screen-config-converters do
+           (push (cons key (funcall write-fn screen (assoc-default key screen-property)))
+                 als)
+           finally return (cons screen (nreverse als))))
+
+(defun elsc-desk--screen-configs (frame)
+  "Return screen-configs of FRAME."
+  (let ((selected-fr (selected-frame)))
     (select-frame frame)
     (elscreen-set-window-configuration
      (elscreen-get-current-screen)
      (elscreen-current-window-configuration))
     (prog1
         (elscreen-save-screen-excursion
-         (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history)) do
-                  (elscreen-apply-window-configuration
-                   (elscreen-get-window-configuration s-num))
-                  collect (list s-num
-                                (window-state-get (frame-root-window frame) t)
-                                (elscreen-get-screen-nickname s-num))))
-      (select-frame now-fr))))
+         (cl-loop for s-num in (reverse (elscreen-get-conf-list 'screen-history))
+                  for s-property = (elscreen-get-screen-property s-num)
+                  collect (elsc-desk--writable-screen-config-list s-num s-property)))
+      (select-frame selected-fr))))
 
-(defun elsc-desk:frame-id-configs ()
-  "Return frame-id-configs"
-  (let* ((now-fr (selected-frame))
-         (registered-fr-ls (mapcar #'car elscreen-frame-confs))
-         (fr-ls
-          (cons (cl-find-if (lambda (fr)(eq fr now-fr)) registered-fr-ls)
-                (cl-remove-if (lambda (fr)(eq fr now-fr)) registered-fr-ls))))
-    (mapcar (lambda(frame)
-              (frameset--set-id frame)
-              (list (frameset-frame-id frame)
-                    (elsc-desk:filtered-frame-params frame)
-                    (elsc-desk:screen-configs frame)))
-            fr-ls)))
+(defun elsc-desk--frame-id-config (frame)
+  "Return frame-id-config of FRAME."
+  (frameset--set-id frame)
+  `(,(frameset-frame-id frame)
+    (frame-params ,@(elsc-desk--filtered-frame-params frame))
+    (screen-property ,@(elsc-desk--screen-configs frame))))
 
-(defun elsc-desk:write-frame-id-configs (file)
-  "Write frame-id-configs to file"
-  (let ((fr-id-configs (elsc-desk:frame-id-configs)))
-    (with-temp-file file
-      (insert (prin1-to-string `(setq elsc-desk:tmp-stored-frame-id-configs
-                                      ',fr-id-configs))))
-    (unless elsc-desk:wrote-message-silence
-      (message "Wrote elsc-desk:frame-id-configs :%s" file))))
+(defun elsc-desk--frame-id-configs ()
+  "Return frame-id-confs."
+  (let* ((selected-fr (selected-frame))
+         (fr-ls (cons selected-fr
+                      (cl-delete selected-fr (mapcar #'car elscreen-frame-confs)))))
+    (run-hooks 'elsc-desk-save-before-hook)
+    (prog1
+        (mapcar (lambda(frame)
+                  (elsc-desk--frame-id-config frame))
+                fr-ls)
+      (select-frame selected-fr)
+      (run-hooks 'elsc-desk-save-after-hook))))
 
-;; Functions to restore
+(defun elsc-desk--insert-save-values ()
+  (insert "\n")
+  (cl-loop for (name write-fun) in elsc-desk-variable-converters
+           for saved-name = (elsc-desk-intern-saved-symbol name) do
+           (set saved-name (funcall write-fun))
+           (desktop-outvar saved-name)
+           (set saved-name nil)))
 
-(defun elsc-desk:restore-screen-configs (screen-configs &optional frame)
-  "Restore from (list (list screen-num window-state nickname) ...)"
+(defun elsc-desk--write-frame-id-configs (file)
+  "Write frame-id-configs to FILE."
+  (let ((fr-id-configs (elsc-desk--frame-id-configs)))
+    (with-temp-buffer
+      (insert (prin1-to-string `(setq elsc-desk-saved-frame-id-configs
+                                      ',fr-id-configs)))
+      (elsc-desk--insert-save-values)
+      (write-region (point-min) (point-max) file nil 'nomessage))
+    (unless elsc-desk--wrote-message-silence
+      (message "ElScreen: Wrote %s" (abbreviate-file-name file)))))
+
+;;; Functions to restore
+
+(defvar elsc-desk--restore-error-p)
+
+(defun elsc-desk--set-restored-screen-conf-list (screen als)
+  "Restore from SCREEN's ALS  and set screen-conf-list."
+  (cl-loop for (key _ restore-fn)
+           in elsc-desk-screen-config-converters do
+           (condition-case err
+            (elsc-desk--elscreen-set-screen-conf-list
+             screen key (funcall restore-fn screen (assoc-default key als)))
+            (error
+             (message "ElScreen: Failed to restore %s: %s"
+                      key (error-message-string err))
+             (add-to-list 'elsc-desk--restore-error-p key)))))
+
+(defun elsc-desk--restore-screen-configs (screen-configs &optional frame)
+  "Restore from SCREEN-CONFIGS to FRAME."
   (let ((fr (if (framep frame) frame (selected-frame)))
-        (ls screen-configs) res-ls current-conf)
+        (ls screen-configs) res-ls current-win-conf)
     (select-frame fr)
-    (setq current-conf (elscreen-current-window-configuration))
-    (cl-loop when (null ls) return nil
-             with createdp = t
-             for s-config = (car ls) for s-num = (car s-config) do
+    (setq current-win-conf (elscreen-current-window-configuration))
+    (cl-loop while ls with createdp = t
+             for (s-num . s-conf-ls) = (car ls) do
              (cond
               ((or (not (integerp s-num)) (< s-num 0)) (pop ls))
               ((elscreen-screen-live-p s-num)
                (elscreen-goto s-num)
-               (window-state-put
-                (cl-second s-config) (frame-root-window fr) 'safe)
-               (when (stringp (cl-third s-config))
-                 (elscreen-screen-nickname (cl-third s-config)))
+               (elsc-desk--set-restored-screen-conf-list s-num s-conf-ls)
                (pop ls) (push s-num res-ls))
               ((null createdp) (pop ls))
               (t (setq createdp (elscreen-create-internal)))))
-    (cl-mapc #'elscreen-kill-internal
+    (mapc #'elscreen-kill-internal
              (cl-set-difference (elscreen-get-screen-list) res-ls))
     (unless (elscreen-get-screen-list)
       (elscreen-delete-frame-confs fr)
       (elscreen-make-frame-confs fr)
-      (elscreen-apply-window-configuration current-conf))
-    (elscreen-notify-screen-modification 'force-immediately)))
+      (elscreen-apply-window-configuration current-win-conf))))
 
-(defun elsc-desk:restore-frame-id-config (frame-id-config)
-  "Restore from (list frame-id frame-params screen-configs)"
+(defun elsc-desk--restore-frame-id-config (frame-id-config &optional modify-frame-p)
+  "Restore from FRAME-ID-CONFIG.
+When MODIFY-FRAME-P is non-nil, reset `frame-parameters'."
   (let ((fr (frameset-frame-with-id (car frame-id-config))))
     (when fr
       (select-frame fr)
-      (modify-frame-parameters fr (cl-second frame-id-config))
-      (elsc-desk:restore-screen-configs (cl-third frame-id-config) fr))))
+      (when modify-frame-p
+        (modify-frame-parameters fr (assoc-default 'frame-params frame-id-config)))
+      (elsc-desk--restore-screen-configs
+       (assoc-default 'screen-property frame-id-config) fr))))
 
-(defun elsc-desk:restore-frame-id-configs (frame-id-configs)
-  "Restore from frame-id-configs"
+(defun elsc-desk--restore-saved-values ()
+  (cl-loop for (name _write-fun restore-fun)
+           in elsc-desk-variable-converters do
+           (condition-case err
+               (funcall restore-fun)
+             (error
+              (message "ElScreen: Failed to restore %s: %s"
+                       name (error-message-string err))
+              (add-to-list 'elsc-desk--restore-error-p name)))))
+
+(defun elsc-desk--restore-frame-id-configs (frame-id-configs &optional modify-frame-p)
+  "Restore from FRAME-ID-CONFIGS.
+When MODIFY-FRAME-P is non-nil, reset `frame-parameters'."
   (let ((focus-frame (frameset-frame-with-id (caar frame-id-configs))))
-    (cl-mapc #'elsc-desk:restore-frame-id-config frame-id-configs)
-    (when (framep focus-frame) (select-frame-set-input-focus focus-frame))))
+    (run-hooks 'elsc-desk-restore-before-hook)
+    (dolist (frame-id-config frame-id-configs)
+      (elsc-desk--restore-frame-id-config frame-id-config modify-frame-p))
+    (when (framep focus-frame) (select-frame-set-input-focus focus-frame))
+    (run-hooks 'elsc-desk-restore-after-hook)
+    (elscreen-notify-screen-modification 'force-immediately)))
 
-(defun elsc-desk:restore-frame-id-configs-file (file)
-  "Restore from a config file."
+(defun elsc-desk--set-saved-values-to-nil ()
+  (cl-loop for (name) in elsc-desk-variable-converters do
+           (set (elsc-desk-intern-saved-symbol name) nil)))
+
+(defun elsc-desk--restore-frame-id-configs-file (file &optional modify-frame-p)
+  "Restore from FILE.
+When MODIFY-FRAME-P is non-nil, reset `frame-parameters'."
   (if (not (file-exists-p file))
       (message "File not found : %s" file)
-    (load file)
-    (elsc-desk:restore-frame-id-configs elsc-desk:tmp-stored-frame-id-configs)
-    (setq elsc-desk:tmp-stored-frame-id-configs nil)
-    (message "Done elsc-desk:restore-frame-id-configs-file")))
+    (load file t t t)
+    (elsc-desk--restore-saved-values)
+    (let (desktop-autosave-was-enabled
+          elsc-desk--restore-error-p)
+      ;; Temporarily disable the autosave while restoring.
+      ;; Not to overwrite the desktop by autosave when restoring fails.
+      (setq desktop-autosave-was-enabled
+            (memq 'desktop-auto-save-set-timer
+                  (default-value 'window-configuration-change-hook)))
+      (desktop-auto-save-disable)
+      (elsc-desk--restore-frame-id-configs
+       elsc-desk-saved-frame-id-configs modify-frame-p)
+      (when elsc-desk--restore-error-p
+        (error "Elscreen: Failed to restore %s"
+               elsc-desk--restore-error-p))
+      (when desktop-autosave-was-enabled
+        (desktop-auto-save-enable)))
+    (setq elsc-desk-saved-frame-id-configs nil)
+    (elsc-desk--set-saved-values-to-nil)
+    (message "ElScreen: Restored")))
 
 ;; Restore at the start of the session
 
-(defvar elsc-desk:done-read-desktop-start-session-p nil)
+(defvar elsc-desk--done-read-desktop-start-session-p nil)
 
-(defun elsc-desk:set-done-read-desktop-start-session-p ()
-  (setq elsc-desk:done-read-desktop-start-session-p t))
+(defun elsc-desk--set-done-read-desktop-start-session-p ()
+  (setq elsc-desk--done-read-desktop-start-session-p t))
 
-(add-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p)
+(add-hook 'desktop-after-read-hook 'elsc-desk--set-done-read-desktop-start-session-p)
 
-(defun elsc-desk:restore-start-session ()
+(defun elsc-desk--restore-start-session ()
   "Restore at the start of the session."
   (when (and elscreen-around-desktop-mode
-             elsc-desk:done-read-desktop-start-session-p)
-    ;; Temporarily disable the autosave like desktop-read
-    (desktop-auto-save-disable)
-    (elsc-desk:restore-frame-id-configs-file
-     (expand-file-name elsc-desk:filename  desktop-dirname))
-    (desktop-auto-save-enable))
-  (remove-hook 'desktop-after-read-hook 'elsc-desk:set-done-read-desktop-start-session-p))
+             elsc-desk--done-read-desktop-start-session-p)
+    (elsc-desk--restore-frame-id-configs-file (elsc-desk-full-file-name) t))
+  (remove-hook 'desktop-after-read-hook 'elsc-desk--set-done-read-desktop-start-session-p))
 
-(add-hook 'window-setup-hook 'elsc-desk:restore-start-session)
+(add-hook 'window-setup-hook 'elsc-desk--restore-start-session)
 
-;; Store at the end of the session
+;;; Save at the end of the session
 
-(defun elsc-desk:advice-desktop-kill (elsc-desk:origin-fun &rest elsc-desk:args)
-  "Store synchronously with desktop-kill"
+(defun elsc-desk--advice-desktop-kill (elsc-desk--origin-fun &rest elsc-desk--args)
+  "Save synchronously with `desktop-kill'.
+Around advice for `desktop-kill'."
   (let ((prev-dirname desktop-dirname)
         (prev-modtime (nth 5 (file-attributes (desktop-full-file-name))))
         origin-return-obj)
 
-    (setq origin-return-obj (apply elsc-desk:origin-fun elsc-desk:args))
+    (setq origin-return-obj (apply elsc-desk--origin-fun elsc-desk--args))
 
     (when (and elscreen-around-desktop-mode
                (or (not (equal prev-dirname desktop-dirname))
                    (> (float-time (nth 5 (file-attributes (desktop-full-file-name))))
                       (float-time prev-modtime))
                    (and (null prev-modtime) (file-exists-p (desktop-full-file-name)))))
-      (elsc-desk:write-frame-id-configs
-       (expand-file-name elsc-desk:filename desktop-dirname)))
+      (elsc-desk--write-frame-id-configs (elsc-desk-full-file-name)))
     origin-return-obj))
 
 ;; Emulate auto save defined in desktop.el
 
-(defvar elsc-desk:auto-store-timer nil)
+(defvar elsc-desk--auto-save-timer nil)
 
-(defvar elsc-desk:auto-store-activep t)
+(defvar elsc-desk-auto-save-active-p t)
 
-(defun elsc-desk:advice-desktop-auto-save-enable (&rest _ignore)
-  (when (member 'desktop-auto-save-set-timer
-                (default-value 'window-configuration-change-hook))
-    (advice-add 'desktop-auto-save-set-timer :after #'elsc-desk:advice-auto-save-set-timer)))
+(defun elsc-desk--advice-desktop-auto-save-enable (&rest _ignore)
+  "After advice for `desktop-auto-save-enable'."
+  (when (memq 'desktop-auto-save-set-timer
+              (default-value 'window-configuration-change-hook))
+    (advice-add 'desktop-auto-save-set-timer :after #'elsc-desk--advice-desktop-auto-save-set-timer)))
 
-(advice-add 'desktop-auto-save-enable :after #'elsc-desk:advice-desktop-auto-save-enable)
+(advice-add 'desktop-auto-save-enable :after #'elsc-desk--advice-desktop-auto-save-enable)
 
-(defun elsc-desk:advice-desktop-auto-save-disable (&rest _ignore)
-  (advice-remove 'desktop-auto-save-set-timer  #'elsc-desk:advice-auto-save-set-timer)
-  (elsc-desk:cancel-auto-store-timer))
+(defun elsc-desk--advice-desktop-auto-save-disable (&rest _ignore)
+  "Before advice for `desktop-auto-save-disable'."
+  (advice-remove 'desktop-auto-save-set-timer  #'elsc-desk--advice-desktop-auto-save-set-timer)
+  (elsc-desk--cancel-auto-save-timer))
 
-(advice-add 'desktop-auto-save-disable :before #'elsc-desk:advice-desktop-auto-save-disable)
+(advice-add 'desktop-auto-save-disable :before #'elsc-desk--advice-desktop-auto-save-disable)
 
-(defmacro elsc-desk:progn-under-silence-wcc-hook (&rest body)
-  "Not to run functions in window-configuration-change-hook while evaluating."
+(defmacro elsc-desk--progn-under-silence-wcc-hook (&rest body)
+  "Not to run functions in `window-configuration-change-hook' while evaluating BODY."
   (let ((tmp-local-wcc-hook-alist (cl-gensym "tmp-local"))
         (tmp-global-wcc-hook (cl-gensym "tmp-global")))
     `(let ((,tmp-local-wcc-hook-alist
@@ -266,127 +456,161 @@ between emacs-startup-hook and window-setup-hook in normal-top-level."
              (setq window-configuration-change-hook (cdr buf-wcc))))
          (setq-default window-configuration-change-hook ,tmp-global-wcc-hook)))))
 
-(defun elsc-desk:auto-store ()
-  "Store synchronously with desktop-auto-save."
+(defun elsc-desk--auto-save ()
+  "Emulate `desktop-auto-save'."
   (when (and desktop-save-mode
              elscreen-around-desktop-mode
-             elsc-desk:auto-store-activep
+             elsc-desk-auto-save-active-p
              (integerp desktop-auto-save-timeout)
              (> desktop-auto-save-timeout 0)
              (not desktop-lazy-timer)
              (eq (emacs-pid) (desktop-owner))
              desktop-dirname)
-    (elsc-desk:progn-under-silence-wcc-hook
-     (elsc-desk:write-frame-id-configs
-      (expand-file-name elsc-desk:filename desktop-dirname))
-     (elsc-desk:cancel-auto-store-timer))))
+    (elsc-desk--progn-under-silence-wcc-hook
+     (elsc-desk--write-frame-id-configs (elsc-desk-full-file-name))
+     (elsc-desk--cancel-auto-save-timer))))
 
-(defun elsc-desk:auto-store-set-timer ()
-  (elsc-desk:cancel-auto-store-timer)
+(defun elsc-desk--auto-save-set-timer ()
+  (elsc-desk--cancel-auto-save-timer)
   (when (and (integerp desktop-auto-save-timeout)
              (> desktop-auto-save-timeout 0))
-    (setq elsc-desk:auto-store-timer
-          (run-with-idle-timer desktop-auto-save-timeout nil 'elsc-desk:auto-store))))
+    (setq elsc-desk--auto-save-timer
+          (run-with-idle-timer desktop-auto-save-timeout nil 'elsc-desk--auto-save))))
 
-(defun elsc-desk:advice-auto-save-set-timer (&rest _ignore)
-  (elsc-desk:auto-store-set-timer))
+(defun elsc-desk--advice-desktop-auto-save-set-timer (&rest _ignore)
+  "After advice for `desktop-auto-save-set-timer'."
+  (elsc-desk--auto-save-set-timer))
 
-(defun elsc-desk:cancel-auto-store-timer ()
-  (when elsc-desk:auto-store-timer
-    (cancel-timer elsc-desk:auto-store-timer)
-    (setq elsc-desk:auto-store-timer nil)))
+(defun elsc-desk--cancel-auto-save-timer ()
+  (when elsc-desk--auto-save-timer
+    (cancel-timer elsc-desk--auto-save-timer)
+    (setq elsc-desk--auto-save-timer nil)))
 
-;; Emulate interactive functions defined desktop.el
+;;; Emulate interactive functions defined desktop.el
 
 ;;;###autoload
 (defun elscreen-desktop-clear ()
-  "Emulate desktop-clear."
+  "Emulate `desktop-clear'."
   (interactive)
-  (when (called-interactively-p)
-    (call-interactively 'desktop-clear)
-    (desktop-clear))
-  (let ((now-fr (selected-frame)))
-   (dolist (fr (frame-list))
-     (select-frame fr)
-     (cl-mapc #'elscreen-kill-internal (elscreen-get-screen-list))
-     (elscreen-delete-frame-confs fr)
-     (elscreen-make-frame-confs fr 'keep))
-   (select-frame now-fr)))
+  (desktop-lazy-abort)
+  (dolist (fr (frame-list))
+    (unless (frame-parameter fr 'desktop-dont-clear)
+      (elscreen-delete-frame-confs fr)
+      (elscreen-make-frame-confs fr)))
+  (if (called-interactively-p 'interactive)
+      (call-interactively 'desktop-clear)
+    (desktop-clear)))
 
 ;;;###autoload
 (defun elscreen-desktop-save (&optional dirname release only-if-changed)
-  "Save elscreen configrations with desktop-save."
+  "Emulate `desktop-save'."
   (interactive)
-  (cond
-   ((interactive-p)
-    (call-interactively 'desktop-save)
-    (elsc-desk:write-frame-id-configs
-     (expand-file-name elsc-desk:filename desktop-dirname)))
-   ((and (stringp dirname) (file-exists-p dirname))
-    (desktop-save dirname release only-if-changed)
-    (elsc-desk:write-frame-id-configs
-     (expand-file-name elsc-desk:filename dirname)))
-   (t (message "File not found : %s" dirname))))
+  (let ((current-desktop-file-modtime desktop-file-modtime))
+   (if (called-interactively-p 'interactive)
+       (call-interactively 'desktop-save)
+     (desktop-save dirname release only-if-changed))
+   (unless (equal current-desktop-file-modtime desktop-file-modtime)
+    (elsc-desk--write-frame-id-configs (elsc-desk-full-file-name dirname)))))
 
 ;;;###autoload
 (defun elscreen-desktop-save-in-desktop-dir ()
-  "Emulate desktop-save-in-desktop-dir."
+  "Emulate `desktop-save-in-desktop-dir'."
   (interactive)
   (if desktop-dirname
       (elscreen-desktop-save desktop-dirname)
     (call-interactively 'elscreen-desktop-save))
   (message "Desktop saved in %s" (abbreviate-file-name desktop-dirname)))
 
-(defun elsc-desk:restore-after-desktop-read (&rest _ignore)
-  "Restore elscreen configurations in desktop-after-read-hook"
-  (elsc-desk:restore-frame-id-configs-file
-   (expand-file-name elsc-desk:filename desktop-dirname)))
+(defun elsc-desk--restore-after-desktop-read (&rest _ignore)
+  "Restore elscreen configurations in `desktop-after-read-hook'."
+  (elsc-desk--restore-frame-id-configs-file (elsc-desk-full-file-name)))
 
 ;;;###autoload
 (defun elscreen-desktop-read (&optional dirname)
-  "Emulate desktop-read."
+  "Emulate `desktop-read'."
   (interactive)
   (unwind-protect
       (progn
-        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (add-hook 'desktop-after-read-hook 'elsc-desk--restore-after-desktop-read)
         (desktop-read dirname))
-    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk--restore-after-desktop-read)))
 
+;;;###autoload
 (defun elscreen-desktop-change-dir (dirname)
-  "Emulate desktop-change-dir."
+  "Emulate `desktop-change-dir'."
   (interactive "DChange to directory: ")
   (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (unless (file-exists-p dirname)
+    (error "No directory: %s" (abbreviate-file-name dirname)))
   (desktop-kill)
   (elscreen-desktop-clear)
   (elscreen-desktop-read dirname))
 
 ;;;###autoload
 (defun elscreen-desktop-remove ()
-  "Emulate desktop-remove."
+  "Emulate `desktop-remove'."
   (interactive)
   (when desktop-dirname
-    (let ((filename
-           (expand-file-name elsc-desk:filename desktop-dirname)))
+    (let ((filename (elsc-desk-full-file-name)))
       (when (file-exists-p filename)
         (delete-file filename))))
   (desktop-remove))
 
 ;;;###autoload
 (defun elscreen-desktop-revert ()
-  "Emulate desktop-revert."
+  "Emulate `desktop-revert'."
   (interactive)
   (unwind-protect
       (progn
-        (add-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)
+        (add-hook 'desktop-after-read-hook 'elsc-desk--restore-after-desktop-read)
         (desktop-revert))
-    (remove-hook 'desktop-after-read-hook 'elsc-desk:restore-after-desktop-read)))
+    (remove-hook 'desktop-after-read-hook 'elsc-desk--restore-after-desktop-read)))
+
+;; Added interactive functions
+
+;;;###autoload
+(cl-defun elscreen-desktop-save-to-dir (dirname)
+  "Just save to DIRNAME."
+  (interactive "DSelect directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (unless (file-exists-p dirname)
+    (if (not (y-or-n-p (message "Make directory?: %s" (abbreviate-file-name dirname))))
+        (cl-return-from elscreen-desktop-save-to-dir
+          (message "Aborted elscreen-desktop-save-to-dir"))
+        (make-directory dirname)
+      (sit-for 0.2)))
+  (unless (file-exists-p dirname)
+    (error "No directory: %s" dirname))
+  (let ((desktop-dirname dirname)
+        (desktop-file-modtime nil))
+    (elscreen-desktop-save dirname t nil)
+    (message "Desktop saved in %s" (abbreviate-file-name desktop-dirname))))
+
+;;;###autoload
+(defun elscreen-desktop-read-from-dir (dirname)
+  "Just read from DIRNAME."
+  (interactive "DSelect directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (unless (file-exists-p dirname)
+    (error "No directory: %s" (abbreviate-file-name dirname)))
+  (unless (file-exists-p (desktop-full-file-name dirname))
+    (error "No desktop file."))
+  (unless (file-exists-p (elsc-desk-full-file-name dirname))
+    (error "No elscreen-around-desktop file."))
+  (let ((current-desktop-dirname desktop-dirname)
+        (desktop-dirname dirname)
+        (desktop-file-modtime nil))
+    (elscreen-desktop-read dirname)
+    (when (and (not (file-equal-p current-desktop-dirname desktop-dirname))
+               (eq (emacs-pid) (desktop-owner)))
+      (desktop-release-lock desktop-dirname))))
 
 ;; Functions for minor mode
-(defun elsc-desk:enable-around-desktop ()
-  (advice-add 'desktop-kill :around #'elsc-desk:advice-desktop-kill))
+(defun elsc-desk--enable-around-desktop ()
+  (advice-add 'desktop-kill :around #'elsc-desk--advice-desktop-kill))
 
-(defun elsc-desk:disable-around-desktop ()
-  (advice-remove 'desktop-kill #'elsc-desk:advice-desktop-kill))
+(defun elsc-desk--disable-around-desktop ()
+  (advice-remove 'desktop-kill #'elsc-desk--advice-desktop-kill))
 
 (provide 'elscreen-around-desktop)
 ;;; elscreen-around-desktop.el ends here
