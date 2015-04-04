@@ -566,6 +566,45 @@ Around advice for `desktop-kill'."
         (desktop-revert))
     (remove-hook 'desktop-after-read-hook 'elsc-desk--restore-after-desktop-read)))
 
+;; Added interactive functions
+
+;;;###autoload
+(cl-defun elscreen-desktop-save-to-dir (dirname)
+  "Just save to DIRNAME."
+  (interactive "DSelect directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (unless (file-exists-p dirname)
+    (if (not (y-or-n-p (message "Make directory?: %s" (abbreviate-file-name dirname))))
+        (cl-return-from elscreen-desktop-save-to-dir
+          (message "Aborted elscreen-desktop-save-to-dir"))
+        (make-directory dirname)
+      (sit-for 0.2)))
+  (unless (file-exists-p dirname)
+    (error "No directory: %s" dirname))
+  (let ((desktop-dirname dirname)
+        (desktop-file-modtime nil))
+    (elscreen-desktop-save dirname t nil)
+    (message "Desktop saved in %s" (abbreviate-file-name desktop-dirname))))
+
+;;;###autoload
+(defun elscreen-desktop-read-from-dir (dirname)
+  "Just read from DIRNAME."
+  (interactive "DSelect directory: ")
+  (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
+  (unless (file-exists-p dirname)
+    (error "No directory: %s" (abbreviate-file-name dirname)))
+  (unless (file-exists-p (desktop-full-file-name dirname))
+    (error "No desktop file."))
+  (unless (file-exists-p (elsc-desk-full-file-name dirname))
+    (error "No elscreen-around-desktop file."))
+  (let ((current-desktop-dirname desktop-dirname)
+        (desktop-dirname dirname)
+        (desktop-file-modtime nil))
+    (elscreen-desktop-read dirname)
+    (when (and (not (file-equal-p current-desktop-dirname desktop-dirname))
+               (eq (emacs-pid) (desktop-owner)))
+      (desktop-release-lock desktop-dirname))))
+
 ;; Functions for minor mode
 (defun elsc-desk--enable-around-desktop ()
   (advice-add 'desktop-kill :around #'elsc-desk--advice-desktop-kill))
