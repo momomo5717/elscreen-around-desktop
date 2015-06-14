@@ -1,9 +1,9 @@
-;;; elscreen-around-desktop.el --- save and restore elscreen tabs synchronously with desktop.el  -*- lexical-binding: t -*-
+;;; elscreen-around-desktop.el --- An extension of desktop.el for ElScreen -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2015 momomo5717
 
 ;; Keywords: elscreen desktop frameset
-;; Version: 0.2.0
+;; Version: 0.2.1
 ;; Package-Requires: ((emacs "24.4") (elscreen "20140421.414"))
 ;; URL: https://github.com/momomo5717/elscreen-around-desktop
 
@@ -40,7 +40,7 @@
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
-(defconst elscreen-around-desktop-version "0.2.0")
+(defconst elscreen-around-desktop-version "0.2.1")
 
 (defcustom elsc-desk-filename
   (convert-standard-filename ".elscreen-around-desktop")
