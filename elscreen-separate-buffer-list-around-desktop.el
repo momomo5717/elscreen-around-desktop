@@ -29,8 +29,16 @@
 ;;
 ;;; Code:
 
-(require 'elscreen-separate-buffer-list)
 (require 'elscreen-around-desktop)
+
+(defvar esbl-separate-buffer-list)
+(defvar esbl-separate-buffer-count-list)
+(declare-function esbl-save-separate-buffer-list       "elscreen-separate-buffer-list.el")
+(declare-function esbl-restore-separate-buffer-list    "elscreen-separate-buffer-list.el")
+(declare-function esbl-get-all-window-history-alist    "elscreen-separate-buffer-list.el")
+(declare-function esbl-window-history-supported-p      "elscreen-separate-buffer-list.el")
+(declare-function esbl-save-separate-window-history    "elscreen-separate-buffer-list.el")
+(declare-function esbl-restore-separate-window-history "elscreen-separate-buffer-list.el")
 
 ;; Functions to convert separate-buffer-list
 
@@ -43,7 +51,7 @@
 (defun elsc-desk--restore-separate-buffer-list (_screen value)
   "Restore separate-buffer-list from buffer name lis."
   (setq esbl-separate-buffer-list
-        (cl-loop for buf-name in value with buf
+        (cl-loop for buf-name in value
                  for buf = (and (stringp buf-name) (get-buffer buf-name))
                  when buf collect buf)))
 
