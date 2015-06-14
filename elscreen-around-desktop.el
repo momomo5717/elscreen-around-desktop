@@ -242,6 +242,8 @@ in `normal-top-level'."
 (defun elsc-desk--frame-id-configs ()
   "Return frame-id-confs."
   (let* ((selected-fr (selected-frame))
+         (elscreen-frame-confs (cl-remove-if-not #'frame-live-p elscreen-frame-confs
+                                                 :key #'car))
          (fr-ls (cons selected-fr
                       (cl-delete selected-fr (mapcar #'car elscreen-frame-confs)))))
     (run-hooks 'elsc-desk-save-before-hook)
