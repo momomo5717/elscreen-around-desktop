@@ -1,9 +1,9 @@
-;;; elscreen-around-desktop.el --- save and restore elscreen tabs synchronously with desktop.el  -*- lexical-binding: t -*-
+;;; elscreen-around-desktop.el --- An extension of desktop.el for ElScreen -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2015 momomo5717
 
 ;; Keywords: elscreen desktop frameset
-;; Version: 0.2.0
+;; Version: 0.2.1
 ;; Package-Requires: ((emacs "24.4") (elscreen "20140421.414"))
 ;; URL: https://github.com/momomo5717/elscreen-around-desktop
 
@@ -40,7 +40,7 @@
   :tag "ElScreen around desktop"
   :group 'elscreen)
 
-(defconst elscreen-around-desktop-version "0.2.0")
+(defconst elscreen-around-desktop-version "0.2.1")
 
 (defcustom elsc-desk-filename
   (convert-standard-filename ".elscreen-around-desktop")
@@ -242,6 +242,8 @@ in `normal-top-level'."
 (defun elsc-desk--frame-id-configs ()
   "Return frame-id-confs."
   (let* ((selected-fr (selected-frame))
+         (elscreen-frame-confs (cl-remove-if-not #'frame-live-p elscreen-frame-confs
+                                                 :key #'car))
          (fr-ls (cons selected-fr
                       (cl-delete selected-fr (mapcar #'car elscreen-frame-confs)))))
     (run-hooks 'elsc-desk-save-before-hook)
@@ -317,7 +319,11 @@ When MODIFY-FRAME-P is non-nil, reset `frame-parameters'."
     (when fr
       (select-frame fr)
       (when modify-frame-p
-        (modify-frame-parameters fr (assoc-default 'frame-params frame-id-config)))
+        (modify-frame-parameters
+         fr
+         (let ((frameset--target-display nil))
+           (frameset-filter-params
+            (assoc-default 'frame-params frame-id-config) frameset-filter-alist nil))))
       (elsc-desk--restore-screen-configs
        (assoc-default 'screen-property frame-id-config) fr))))
 
@@ -570,15 +576,14 @@ Around advice for `desktop-kill'."
 
 ;;;###autoload
 (cl-defun elscreen-desktop-save-to-dir (dirname)
-  "Just save to DIRNAME."
+  "Save to DIRNAME and release the lock if it exists."
   (interactive "DSelect directory: ")
   (setq dirname (file-name-as-directory (expand-file-name dirname desktop-dirname)))
   (unless (file-exists-p dirname)
     (if (not (y-or-n-p (message "Make directory?: %s" (abbreviate-file-name dirname))))
         (cl-return-from elscreen-desktop-save-to-dir
           (message "Aborted elscreen-desktop-save-to-dir"))
-        (make-directory dirname)
-      (sit-for 0.2)))
+        (make-directory dirname)))
   (unless (file-exists-p dirname)
     (error "No directory: %s" dirname))
   (let ((desktop-dirname dirname)
@@ -597,13 +602,25 @@ Around advice for `desktop-kill'."
     (error "No desktop file."))
   (unless (file-exists-p (elsc-desk-full-file-name dirname))
     (error "No elscreen-around-desktop file."))
-  (let ((current-desktop-dirname desktop-dirname)
-        (desktop-dirname dirname)
-        (desktop-file-modtime nil))
-    (elscreen-desktop-read dirname)
-    (when (and (not (file-equal-p current-desktop-dirname desktop-dirname))
-               (eq (emacs-pid) (desktop-owner)))
-      (desktop-release-lock desktop-dirname))))
+  (let* ((current-desktop-dirname desktop-dirname)
+         (desktop-dirname dirname)
+         (desktop-file-modtime nil)
+         (temp-lock-file-name
+          (expand-file-name (make-temp-name desktop-base-lock-name)
+                            temporary-file-directory))
+         (copy-temp-lock-file
+          (lambda ()
+            (desktop-release-lock dirname)
+            (when (file-exists-p temp-lock-file-name)
+              (copy-file temp-lock-file-name (desktop-full-lock-name dirname) t t)
+              (delete-file temp-lock-file-name)))))
+    (when (file-exists-p (desktop-full-lock-name dirname))
+      (copy-file (desktop-full-lock-name dirname) temp-lock-file-name t t))
+    (unwind-protect
+        (progn
+          (add-hook 'desktop-after-read-hook copy-temp-lock-file)
+          (elscreen-desktop-read dirname))
+      (remove-hook 'desktop-after-read-hook copy-temp-lock-file))))
 
 ;; Functions for minor mode
 (defun elsc-desk--enable-around-desktop ()
