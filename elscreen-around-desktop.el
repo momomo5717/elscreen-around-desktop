@@ -319,7 +319,11 @@ When MODIFY-FRAME-P is non-nil, reset `frame-parameters'."
     (when fr
       (select-frame fr)
       (when modify-frame-p
-        (modify-frame-parameters fr (assoc-default 'frame-params frame-id-config)))
+        (modify-frame-parameters
+         fr
+         (let ((frameset--target-display nil))
+           (frameset-filter-params
+            (assoc-default 'frame-params frame-id-config) frameset-filter-alist nil))))
       (elsc-desk--restore-screen-configs
        (assoc-default 'screen-property frame-id-config) fr))))
 
